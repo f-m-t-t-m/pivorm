@@ -3,6 +3,11 @@ import sqlite3
 import inspect
 from abc import ABC, abstractmethod
 
+SQL_TEMPLATE = {
+    "CREATE": "CREATE TABLE IF NOT EXISTS {table} ({fields})",
+    "INSERT": "INSERT INTO {name} ({fields}) VALUES ({values})"
+}
+
 
 class SqliteDatabase:
     def __init__(self, path):
@@ -15,10 +20,33 @@ class SqliteDatabase:
     def create(self, table):
         return self._execute(table._get_create_sql())
 
+    def save(self, instance):
+        sql = instance._get_insert_sql()
+        print(sql)
+        cursor = self._execute(sql)
+        instance._data['id'] = cursor.lastrowid
+        self.conn.commit()
+
 
 class Table:
+    def __init__(self, **kwargs):
+        self._data = {
+            "id": None
+        }
+        for k, v in kwargs.items():
+            self._data[k] = v
+
     def __init_subclass__(cls, **kwargs):
         cls._bind_fields()
+
+    def __getattribute__(self, item):
+        _data = object.__getattribute__(self, '_data')
+        if item in _data:
+            return _data[item]
+        return object.__getattribute__(self, item)
+
+    def get_data(self):
+        return self._data
 
     @classmethod
     def _get_name(cls):
@@ -48,11 +76,29 @@ class Table:
 
     @classmethod
     def _get_create_sql(cls):
-        create_table_sql = "CREATE TABLE IF NOT EXISTS {table} ({fields})"
         fields = [["id", "INTEGER PRIMARY KEY"], *cls._get_fields()]
         fields = [" ".join(field) for field in fields]
-        return create_table_sql.format(table=cls._get_name(),
-                                       fields=", ".join(fields))
+        return SQL_TEMPLATE["CREATE"].format(table=cls._get_name(),
+                                             fields=", ".join(fields))
+
+    def _get_insert_sql(self):
+        fields = []
+        values = []
+        cls = self.__class__
+
+        for name, value in self.get_data().items():
+            if name != "id":
+                fields.append(name)
+                if isinstance(value, str):
+                    value = f'\'{value}\''
+                values.append(value)
+
+        values_str = [str(value) for value in values]
+        sql = SQL_TEMPLATE["INSERT"].format(name=cls._get_name(),
+                                            fields=", ".join(fields),
+                                            values=", ".join(values_str)
+                                            )
+        return sql
 
 
 class Node(ABC):
@@ -61,34 +107,42 @@ class Node(ABC):
         pass
 
     def __and__(self, rhs):
-        return Expression(self, "AND", rhs)
+        return Expression(self, " AND ", rhs)
+
+    def __rand__(self, rhs):
+        return Expression(rhs, " AND ", self)
 
     def __or__(self, rhs):
-        return Expression(self, "OR", rhs)
+        return Expression(self, " OR ", rhs)
+
+    def __ror__(self, rhs):
+        return Expression(rhs, " OR ", self)
 
     def __eq__(self, rhs):
-        return Expression(self, "=", rhs)
+        return Expression(self, " = ", rhs)
 
     def __ne__(self, rhs):
-        return Expression(self, "!=", rhs)
+        return Expression(self, " != ", rhs)
 
     def __lt__(self, rhs):
-        return Expression(self, "<", rhs)
+        return Expression(self, " < ", rhs)
 
     def __gt__(self, rhs):
-        return Expression(self, ">", rhs)
+        return Expression(self, " > ", rhs)
 
     def __le__(self, rhs):
-        return Expression(self, "<=", rhs)
+        return Expression(self, " <= ", rhs)
 
     def __ge__(self, rhs):
-        return Expression(self, ">=", rhs)
+        return Expression(self, " >= ", rhs)
 
     def in_(self, rhs):
-        return Expression(self, "IN", rhs)
+        rhs = ', '.join(rhs)
+        rhs = f'({rhs})'
+        return Expression(self, " IN ", rhs)
 
     def like(self, rhs):
-        return Expression(self, "LIKE", rhs)
+        return Expression(self, " LIKE ", rhs)
 
 
 class BaseField(Node):
@@ -181,13 +235,3 @@ class SqlVisitor(Visitor):
 
     def visit_value(self, element) -> None:
         self.sql += str(element.val)
-
-
-class Author(Table):
-    name = TextField()
-
-
-expr = (Author.name == 5) & (Author.name <= 10) | (Author.name > 15)
-vis = SqlVisitor()
-expr.visit(vis)
-print(vis.sql)
