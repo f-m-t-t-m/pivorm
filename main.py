@@ -5,14 +5,28 @@ from abc import ABC, abstractmethod
 
 SQL_TEMPLATE = {
     "CREATE": "CREATE TABLE IF NOT EXISTS {table} ({fields})",
-    "INSERT": "INSERT INTO {name} ({fields}) VALUES ({values})"
+    "INSERT": "INSERT INTO {name} ({fields}) VALUES ({values})",
+    "SELECT_ALL": "SELECT * FROM {name}",
 }
 
 
-class SqliteDatabase:
-    def __init__(self, path):
-        self.conn = sqlite3.connect(path)
-        self.cursor = self.conn.cursor()
+class MetaSingleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(MetaSingleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class SqliteDatabase(metaclass=MetaSingleton):
+    def __init__(self):
+        self.connection = None
+        self.cursor = None
+
+    def connect(self, path):
+        if self.connection is None:
+            self.connection = sqlite3.connect(path)
+            self.cursor = self.connection.cursor()
 
     def _execute(self, sql):
         return self.cursor.execute(sql)
@@ -22,10 +36,9 @@ class SqliteDatabase:
 
     def save(self, instance):
         sql = instance._get_insert_sql()
-        print(sql)
         cursor = self._execute(sql)
         instance._data['id'] = cursor.lastrowid
-        self.conn.commit()
+        self.connection.commit()
 
 
 class Table:
@@ -38,6 +51,8 @@ class Table:
 
     def __init_subclass__(cls, **kwargs):
         cls._bind_fields()
+        cls.db = SqliteDatabase()
+        cls.objects = Select(cls.db, cls)
 
     def __getattribute__(self, item):
         _data = object.__getattribute__(self, '_data')
@@ -235,3 +250,36 @@ class SqlVisitor(Visitor):
 
     def visit_value(self, element) -> None:
         self.sql += str(element.val)
+
+
+class Select:
+    def __init__(self, db, model):
+        self.db = db
+        self.model = model
+        self.sql = ""
+
+    def all(self):
+        result = []
+        fields = self.model._get_fields()
+        fields_name = ["id"]
+        for field in fields:
+            fields_name.append(field[0])
+
+        self.sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
+        for row in self.db._execute(self.sql).fetchall():
+            data = dict(zip(fields_name, row))
+            result.append(self.model(**data))
+        return result
+
+
+db = SqliteDatabase()
+db.connect("newdb.db")
+
+
+class Author(Table):
+    name = TextField()
+
+
+humans = Author.objects.all()
+for x in humans:
+    print(x.name)
