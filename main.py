@@ -7,6 +7,7 @@ SQL_TEMPLATE = {
     "CREATE": "CREATE TABLE IF NOT EXISTS {table} ({fields})",
     "INSERT": "INSERT INTO {name} ({fields}) VALUES ({values})",
     "SELECT_ALL": "SELECT * FROM {name}",
+    "SELECT_WHERE": "SELECT * FROM {name} WHERE {expression}",
 }
 
 
@@ -194,10 +195,6 @@ class RealField(BaseField):
     type = "REAL"
 
 
-class BlobField(BaseField):
-    type = "BLOB"
-
-
 class Expression(Node):
     def __init__(self, lhs, op, rhs):
         self.lhs = lhs
@@ -249,6 +246,8 @@ class SqlVisitor(Visitor):
         self.sql += str(element)
 
     def visit_value(self, element) -> None:
+        if isinstance(element.val, str):
+            element.val = f'\'{element.val}\''
         self.sql += str(element.val)
 
 
@@ -271,6 +270,23 @@ class Select:
             result.append(self.model(**data))
         return result
 
+    def filter(self, expression):
+        result = []
+        fields = self.model._get_fields()
+        fields_name = ["id"]
+        for field in fields:
+            fields_name.append(field[0])
+
+        expr_visitor = SqlVisitor()
+        expression.visit(expr_visitor)
+        self.sql = SQL_TEMPLATE["SELECT_WHERE"].format(name=self.model._get_name(),
+                                                       expression=expr_visitor.sql)
+
+        for row in self.db._execute(self.sql).fetchall():
+            data = dict(zip(fields_name, row))
+            result.append(self.model(**data))
+        return result
+
 
 db = SqliteDatabase()
 db.connect("newdb.db")
@@ -280,6 +296,4 @@ class Author(Table):
     name = TextField()
 
 
-humans = Author.objects.all()
-for x in humans:
-    print(x.name)
+me = Author.objects.filter(Author.name == "Sasha")
