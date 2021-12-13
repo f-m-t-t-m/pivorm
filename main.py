@@ -38,7 +38,7 @@ class SqliteDatabase(metaclass=MetaSingleton):
     def save(self, instance):
         sql = instance._get_insert_sql()
         cursor = self._execute(sql)
-        instance._data['id'] = cursor.lastrowid
+        instance._data["id"] = cursor.lastrowid
         self.connection.commit()
 
 
@@ -51,6 +51,7 @@ class Table:
             self._data[k] = v
 
     def __init_subclass__(cls, **kwargs):
+        cls.id = IntegerField()
         cls._bind_fields()
         cls.db = SqliteDatabase()
         cls.objects = Select(cls.db, cls)
@@ -72,7 +73,7 @@ class Table:
     def _get_fields(cls):
         fields = []
         for name, field in inspect.getmembers(cls):
-            if isinstance(field, BaseField):
+            if isinstance(field, BaseField) and name != 'id':
                 field_row = [name, field.type]
                 settings = field.get_settings()
                 if settings['unique']:
@@ -82,6 +83,9 @@ class Table:
                 if settings['default'] is not None:
                     field_row.append("DEFAULT {value}".format(value=settings['default']))
                 fields.append(field_row)
+            elif isinstance(field, ForeignKey):
+                name = name+"_id"
+                fields.append([name, "INTEGER"])
         return fields
 
     @classmethod
@@ -93,7 +97,11 @@ class Table:
     @classmethod
     def _get_create_sql(cls):
         fields = [["id", "INTEGER PRIMARY KEY"], *cls._get_fields()]
+        for name, field in inspect.getmembers(cls):
+            if isinstance(field, ForeignKey):
+                fields.append([f"FOREIGN KEY ({name}) REFERENCES {field.table._get_name()}(id)"])
         fields = [" ".join(field) for field in fields]
+
         return SQL_TEMPLATE["CREATE"].format(table=cls._get_name(),
                                              fields=", ".join(fields))
 
@@ -103,11 +111,15 @@ class Table:
         cls = self.__class__
 
         for name, value in self.get_data().items():
-            if name != "id":
-                fields.append(name)
-                if isinstance(value, str):
-                    value = f'\'{value}\''
-                values.append(value)
+            if isinstance(value, Table):
+                fields.append(name+"_id")
+                values.append(value.id)
+            else:
+                if name != "id":
+                    fields.append(name)
+                    if isinstance(value, str):
+                        value = f'\'{value}\''
+                    values.append(value)
 
         values_str = [str(value) for value in values]
         sql = SQL_TEMPLATE["INSERT"].format(name=cls._get_name(),
@@ -195,6 +207,11 @@ class RealField(BaseField):
     type = "REAL"
 
 
+class ForeignKey:
+    def __init__(self, table):
+        self.table = table
+
+
 class Expression(Node):
     def __init__(self, lhs, op, rhs):
         self.lhs = lhs
@@ -266,7 +283,16 @@ class Select:
 
         self.sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
         for row in self.db._execute(self.sql).fetchall():
-            data = dict(zip(fields_name, row))
+            new_fields_name = []
+            values = []
+            for field, value in zip(fields_name, row):
+                if field.endswith("_id"):
+                    field = field[:-3]
+                    fk = getattr(self.model, field)
+                    value = fk.table.objects.filter(fk.table.id == value)[0]
+                new_fields_name.append(field)
+                values.append(value)
+            data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
         return result
 
@@ -283,17 +309,30 @@ class Select:
                                                        expression=expr_visitor.sql)
 
         for row in self.db._execute(self.sql).fetchall():
-            data = dict(zip(fields_name, row))
+            new_fields_name = []
+            values = []
+            for field, value in zip(fields_name, row):
+                if field.endswith("_id"):
+                    field = field[:-3]
+                    fk = getattr(self.model, field)
+                    value = fk.table.objects.filter(fk.table.id == value)[0]
+                new_fields_name.append(field)
+                values.append(value)
+            data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
         return result
 
 
-db = SqliteDatabase()
-db.connect("newdb.db")
-
-
-class Author(Table):
+class Parent(Table):
     name = TextField()
+    age = IntegerField(null=True)
 
 
-me = Author.objects.filter(Author.name == "Sasha")
+class Child(Table):
+    name = TextField()
+    age = IntegerField(null=True)
+    parent = ForeignKey(Parent)
+
+
+db = SqliteDatabase()
+db.connect("new.db")
