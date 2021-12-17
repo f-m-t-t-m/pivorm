@@ -6,8 +6,7 @@ from abc import ABC, abstractmethod
 SQL_TEMPLATE = {
     "CREATE": "CREATE TABLE IF NOT EXISTS {table} ({fields})",
     "INSERT": "INSERT INTO {name} ({fields}) VALUES ({values})",
-    "SELECT_ALL": "SELECT * FROM {name}",
-    "SELECT_WHERE": "SELECT * FROM {name} WHERE {expression}",
+    "SELECT_ALL": "SELECT {name}.* FROM {name}",
 }
 
 
@@ -297,16 +296,20 @@ class Select:
         return result
 
     def filter(self, expression):
+        self.sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
         result = []
         fields = self.model._get_fields()
         fields_name = ["id"]
         for field in fields:
             fields_name.append(field[0])
 
+        for name, field in inspect.getmembers(self.model):
+            if isinstance(field, ForeignKey):
+                self.sql += f" LEFT JOIN {name} ON {self.model._get_name()}.{name}_id = {name}.id"
+
         expr_visitor = SqlVisitor()
         expression.visit(expr_visitor)
-        self.sql = SQL_TEMPLATE["SELECT_WHERE"].format(name=self.model._get_name(),
-                                                       expression=expr_visitor.sql)
+        self.sql += f" WHERE {expr_visitor.sql}"
 
         for row in self.db._execute(self.sql).fetchall():
             new_fields_name = []
@@ -336,3 +339,7 @@ class Child(Table):
 
 db = SqliteDatabase()
 db.connect("new.db")
+
+a = Child.objects.filter(Parent.name == "qwerty")
+for x in a:
+    print(x.name)
