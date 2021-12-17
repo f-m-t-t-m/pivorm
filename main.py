@@ -268,10 +268,11 @@ class SqlVisitor(Visitor):
 
 
 class Select:
-    def __init__(self, db, model):
+    def __init__(self, db, model, sql="", result=[]):
         self.db = db
         self.model = model
-        self.sql = ""
+        self.sql = sql
+        self.result = result
 
     def all(self):
         result = []
@@ -279,9 +280,10 @@ class Select:
         fields_name = ["id"]
         for field in fields:
             fields_name.append(field[0])
-
-        self.sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
-        for row in self.db._execute(self.sql).fetchall():
+        sql = self.sql
+        if self.sql == "":
+            sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
+        for row in self.db._execute(sql).fetchall():
             new_fields_name = []
             values = []
             for field, value in zip(fields_name, row):
@@ -293,25 +295,30 @@ class Select:
                 values.append(value)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
-        return result
+        return Select(self.db, self.model, sql, result)
 
     def filter(self, expression):
-        self.sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
         result = []
         fields = self.model._get_fields()
         fields_name = ["id"]
         for field in fields:
             fields_name.append(field[0])
 
-        for name, field in inspect.getmembers(self.model):
-            if isinstance(field, ForeignKey):
-                self.sql += f" LEFT JOIN {name} ON {self.model._get_name()}.{name}_id = {name}.id"
+        sql = self.sql
+        if self.sql == "":
+            sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
+            for name, field in inspect.getmembers(self.model):
+                if isinstance(field, ForeignKey):
+                    sql += f" LEFT JOIN {name} ON {self.model._get_name()}.{name}_id = {name}.id"
+            expr_visitor = SqlVisitor()
+            expression.visit(expr_visitor)
+            sql += f" WHERE {expr_visitor.sql}"
+        else:
+            expr_visitor = SqlVisitor()
+            expression.visit(expr_visitor)
+            sql += f" AND {expr_visitor.sql}"
 
-        expr_visitor = SqlVisitor()
-        expression.visit(expr_visitor)
-        self.sql += f" WHERE {expr_visitor.sql}"
-
-        for row in self.db._execute(self.sql).fetchall():
+        for row in self.db._execute(sql).fetchall():
             new_fields_name = []
             values = []
             for field, value in zip(fields_name, row):
@@ -323,7 +330,13 @@ class Select:
                 values.append(value)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
-        return result
+        return Select(self.db, self.model, sql, result)
+
+    def __iter__(self):
+        return (i for i in self.result)
+
+    def __getitem__(self, item):
+        return self.result[item]
 
 
 class Parent(Table):
@@ -340,6 +353,15 @@ class Child(Table):
 db = SqliteDatabase()
 db.connect("new.db")
 
-a = Child.objects.filter(Parent.name == "qwerty")
-for x in a:
-    print(x.name)
+
+a = Parent.objects.filter(Parent.name == 'Vasya')
+b = a.filter(Parent.id == 2)
+c = b.all()
+for i in a:
+    print(i.name)
+
+for i in b:
+    print(i.name)
+
+for i in c:
+    print(i.name)
