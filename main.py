@@ -31,15 +31,6 @@ class SqliteDatabase(metaclass=MetaSingleton):
     def _execute(self, sql):
         return self.cursor.execute(sql)
 
-    def create(self, table):
-        return self._execute(table._get_create_sql())
-
-    def save(self, instance):
-        sql = instance._get_insert_sql()
-        cursor = self._execute(sql)
-        instance._data["id"] = cursor.lastrowid
-        self.connection.commit()
-
 
 class Table:
     def __init__(self, **kwargs):
@@ -126,6 +117,17 @@ class Table:
                                             values=", ".join(values_str)
                                             )
         return sql
+
+    @classmethod
+    def create(cls):
+        return cls.db._execute(cls._get_create_sql())
+
+    def save(self):
+        sql = self._get_insert_sql()
+        cursor = self.db._execute(sql)
+        self._data["id"] = cursor.lastrowid
+        print(cursor.lastrowid)
+        self.db.connection.commit()
 
 
 class Node(ABC):
@@ -350,13 +352,19 @@ class Child(Table):
     parent = ForeignKey(Parent)
 
 
+class Test(Table):
+    test = TextField()
+
+
 db = SqliteDatabase()
 db.connect("new.db")
 
-
 a = Parent.objects.filter(Parent.name == 'Vasya')
+print(a.sql)
 b = a.filter(Parent.id == 2)
+print(b.sql)
 c = b.all()
+print(c.sql)
 for i in a:
     print(i.name)
 
