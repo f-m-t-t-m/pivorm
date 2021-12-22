@@ -292,6 +292,8 @@ class Select:
             new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
+        if not result:
+            return None
         return Select(self.db, self.model, sql, result)
 
     def filter(self, expression):
@@ -320,6 +322,8 @@ class Select:
             new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
+        if not result:
+            return None
         return Select(self.db, self.model, sql, result, where)
 
     def get(self, expression):
@@ -367,7 +371,7 @@ db.connect("new.db")
 
 a = Child.objects.all()
 # print(a.sql)
-b = a.get(Parent.id == 123)
+b = a.filter(Parent.id == 123)
 print(b)
 # print(b.sql)
 #print(c.sql)
