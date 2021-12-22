@@ -9,9 +9,9 @@ SQL_TEMPLATE = {
     "SELECT_ALL": "SELECT {name}.* FROM {name}",
 }
 
-
 class MetaSingleton(type):
     _instances = {}
+
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
             cls._instances[cls] = super(MetaSingleton, cls).__call__(*args, **kwargs)
@@ -27,9 +27,18 @@ class SqliteDatabase(metaclass=MetaSingleton):
         if self.connection is None:
             self.connection = sqlite3.connect(path)
             self.cursor = self.connection.cursor()
+        else:
+            raise Exception(f"connection is already open")
 
     def _execute(self, sql):
         return self.cursor.execute(sql)
+
+    def close(self):
+        if self.connection is not None:
+            self.cursor.close()
+            self.connection.close()
+            self.cursor = None
+            self.connection = None
 
 
 class Table:
@@ -176,6 +185,7 @@ class Node(ABC):
 
 class BaseField(Node):
     def __init__(self, unique=False, null=False, default=None):
+        self.type = None
         self.unique = unique
         self.null = null
         self.default = default
@@ -270,7 +280,7 @@ class SqlVisitor(Visitor):
 
 
 class Select:
-    def __init__(self, db, model, sql="", result=[], where=""):
+    def __init__(self, db, model, sql="", result=None, where=""):
         self.db = db
         self.model = model
         self.sql = sql
@@ -364,15 +374,3 @@ class Child(Table):
 
 class Test(Table):
     test = TextField()
-
-
-db = SqliteDatabase()
-db.connect("new.db")
-
-a = Child.objects.all()
-# print(a.sql)
-b = a.filter(Parent.id == 123)
-print(b)
-# print(b.sql)
-#print(c.sql)
-
