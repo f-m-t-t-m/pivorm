@@ -270,31 +270,26 @@ class SqlVisitor(Visitor):
 
 
 class Select:
-    def __init__(self, db, model, sql="", result=[]):
+    def __init__(self, db, model, sql="", result=[], where=""):
         self.db = db
         self.model = model
         self.sql = sql
+        self.where = where
         self.result = result
 
     def all(self):
+        if self.result:
+            return Select(self.db, self.model, self.sql, self.result, self.where)
+
         result = []
         fields = self.model._get_fields()
         fields_name = ["id"]
         for field in fields:
             fields_name.append(field[0])
-        sql = self.sql
-        if self.sql == "":
-            sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
+
+        sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
         for row in self.db._execute(sql).fetchall():
-            new_fields_name = []
-            values = []
-            for field, value in zip(fields_name, row):
-                if field.endswith("_id"):
-                    field = field[:-3]
-                    fk = getattr(self.model, field)
-                    value = fk.table.objects.filter(fk.table.id == value)[0]
-                new_fields_name.append(field)
-                values.append(value)
+            new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
         return Select(self.db, self.model, sql, result)
@@ -306,33 +301,44 @@ class Select:
         for field in fields:
             fields_name.append(field[0])
 
-        sql = self.sql
-        if self.sql == "":
-            sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
-            for name, field in inspect.getmembers(self.model):
-                if isinstance(field, ForeignKey):
-                    sql += f" LEFT JOIN {name} ON {self.model._get_name()}.{name}_id = {name}.id"
-            expr_visitor = SqlVisitor()
-            expression.visit(expr_visitor)
-            sql += f" WHERE {expr_visitor.sql}"
-        else:
-            expr_visitor = SqlVisitor()
-            expression.visit(expr_visitor)
-            sql += f" AND {expr_visitor.sql}"
+        sql = SQL_TEMPLATE["SELECT_ALL"].format(name=self.model._get_name())
+        expr_visitor = SqlVisitor()
+        expression.visit(expr_visitor)
+        where = self.where
 
+        for name, field in inspect.getmembers(self.model):
+            if isinstance(field, ForeignKey):
+                sql += f" LEFT JOIN {name} ON {self.model._get_name()}.{name}_id = {name}.id"
+
+        if not where:
+            where = f" WHERE {expr_visitor.sql}"
+        else:
+            where += f" AND {expr_visitor.sql}"
+
+        sql += where
         for row in self.db._execute(sql).fetchall():
-            new_fields_name = []
-            values = []
-            for field, value in zip(fields_name, row):
-                if field.endswith("_id"):
-                    field = field[:-3]
-                    fk = getattr(self.model, field)
-                    value = fk.table.objects.filter(fk.table.id == value)[0]
-                new_fields_name.append(field)
-                values.append(value)
+            new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
             result.append(self.model(**data))
-        return Select(self.db, self.model, sql, result)
+        return Select(self.db, self.model, sql, result, where)
+
+    def get(self, expression):
+        select = self.filter(expression)
+        if not select.result:
+            return None
+        return select[0]
+
+    def get_fk_table(self, fields, row):
+        new_fields_name = []
+        values = []
+        for field, value in zip(fields, row):
+            if field.endswith("_id"):
+                field = field[:-3]
+                fk = getattr(self.model, field)
+                value = fk.table.objects.filter(fk.table.id == value)[0]
+            new_fields_name.append(field)
+            values.append(value)
+        return new_fields_name, values
 
     def __iter__(self):
         return (i for i in self.result)
@@ -359,17 +365,10 @@ class Test(Table):
 db = SqliteDatabase()
 db.connect("new.db")
 
-a = Parent.objects.filter(Parent.name == 'Vasya')
-print(a.sql)
-b = a.filter(Parent.id == 2)
-print(b.sql)
-c = b.all()
-print(c.sql)
-for i in a:
-    print(i.name)
+a = Child.objects.all()
+# print(a.sql)
+b = a.get(Parent.id == 123)
+print(b)
+# print(b.sql)
+#print(c.sql)
 
-for i in b:
-    print(i.name)
-
-for i in c:
-    print(i.name)
