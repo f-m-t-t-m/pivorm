@@ -98,7 +98,7 @@ class Table:
         fields = [["id", "INTEGER PRIMARY KEY"], *cls._get_fields()]
         for name, field in inspect.getmembers(cls):
             if isinstance(field, ForeignKey):
-                fields.append([f"FOREIGN KEY ({name}) REFERENCES {field.table._get_name()}(id)"])
+                fields.append([f"FOREIGN KEY ({name}_id) REFERENCES {field.table._get_name()}(id)"])
         fields = [" ".join(field) for field in fields]
 
         return SQL_TEMPLATE["CREATE"].format(table=cls._get_name(),
@@ -135,7 +135,6 @@ class Table:
         sql = self._get_insert_sql()
         cursor = self.db._execute(sql)
         self._data["id"] = cursor.lastrowid
-        print(cursor.lastrowid)
         self.db.connection.commit()
 
 
@@ -185,7 +184,6 @@ class Node(ABC):
 
 class BaseField(Node):
     def __init__(self, unique=False, null=False, default=None):
-        self.type = None
         self.unique = unique
         self.null = null
         self.default = default
@@ -359,18 +357,3 @@ class Select:
 
     def __getitem__(self, item):
         return self.result[item]
-
-
-class Parent(Table):
-    name = TextField()
-    age = IntegerField(null=True)
-
-
-class Child(Table):
-    name = TextField()
-    age = IntegerField(null=True)
-    parent = ForeignKey(Parent)
-
-
-class Test(Table):
-    test = TextField()
