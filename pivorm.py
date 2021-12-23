@@ -174,8 +174,11 @@ class Node(ABC):
         return Expression(self, " >= ", rhs)
 
     def in_(self, rhs):
-        rhs = ', '.join(rhs)
-        rhs = f'({rhs})'
+        if isinstance(rhs[0], str):
+            rhs = ', '.join(f'\'{w}\'' for w in rhs)
+        else:
+            rhs = ', '.join(str(w) for w in rhs)
+        rhs = '('+rhs+')'
         return Expression(self, " IN ", rhs)
 
     def like(self, rhs):
@@ -260,11 +263,13 @@ class Visitor(ABC):
 class SqlVisitor(Visitor):
     def __init__(self):
         self.sql = ""
+        self.op = None
 
     def visit_expr(self, element) -> None:
         self.sql += '('
         element.lhs.visit(self)
         self.sql += element.op
+        self.op = element.op
         element.rhs.visit(self)
         self.sql += ')'
 
@@ -272,7 +277,7 @@ class SqlVisitor(Visitor):
         self.sql += str(element)
 
     def visit_value(self, element) -> None:
-        if isinstance(element.val, str):
+        if isinstance(element.val, str) and self.op != ' IN ':
             element.val = f'\'{element.val}\''
         self.sql += str(element.val)
 
@@ -326,6 +331,7 @@ class Select:
             where += f" AND {expr_visitor.sql}"
 
         sql += where
+        print(sql)
         for row in self.db._execute(sql).fetchall():
             new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
