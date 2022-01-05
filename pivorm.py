@@ -28,7 +28,7 @@ class SqliteDatabase(metaclass=MetaSingleton):
             self.connection = sqlite3.connect(path)
             self.cursor = self.connection.cursor()
         else:
-            raise Exception(f"connection is already open")
+            raise Exception("connection is already open")
 
     def _execute(self, sql):
         return self.cursor.execute(sql)
@@ -331,7 +331,6 @@ class Select:
             where += f" AND {expr_visitor.sql}"
 
         sql += where
-        print(sql)
         for row in self.db._execute(sql).fetchall():
             new_fields_name, values = self.get_fk_table(fields_name, row)
             data = dict(zip(new_fields_name, values))
